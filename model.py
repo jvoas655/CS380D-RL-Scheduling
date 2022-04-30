@@ -81,19 +81,15 @@ class ModelHeterogene(torch.nn.Module):
         v = torch.mean(x, dim=0)
         x_pass = torch.max(x[ready.squeeze(1).to(torch.bool)], dim=0)[0]
         x_pass = torch.cat((x_pass, features_cluster), dim=0)
-
         for layer in self.listmlp_value:
             v = layer(v)
-
         for layer in self.listmlp:
             x = layer(x)
-
         for layer in self.listmlp_pass:
             x_pass = layer(x_pass)
 
         probs = torch.cat((x[ready.squeeze(1).to(torch.bool)].squeeze(-1), x_pass), dim=0)
         probs = F.softmax(probs)
-
         return probs, v
 
 class BaseConvHeterogene(torch.nn.Module):

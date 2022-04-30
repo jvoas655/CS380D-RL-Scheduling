@@ -253,6 +253,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+venv/
 env.bak/
 venv.bak/
 pythonenv*
@@ -280,3 +281,5 @@ dmypy.json
 
 # profiling data
 .prof
+
+runs/

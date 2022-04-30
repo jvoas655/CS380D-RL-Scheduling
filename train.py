@@ -1,4 +1,4 @@
-from env import CholeskyTaskGraph, DAGEnv
+from env import RDAGEnv
 from a2c import A2C
 from a2c import *
 from model import Net, SimpleNet, SimpleNet2, ResNetG, SimpleNetMax, ModelHeterogene
@@ -38,20 +38,19 @@ parser.add_argument('--res', action='store_true', default=False, help='with resi
 parser.add_argument('--withbn', action='store_true', default=False, help='with batch norm')
 
 # env settings
-parser.add_argument('--n', type=int, default=4, help='number of tiles')
-parser.add_argument('--nGPU', type=int, default=1, help='number of GPUs')
-parser.add_argument('--nCPU', type=int, default=3, help='number of cores')
+parser.add_argument('--task_nodes', type=int, default=200, help='number of tasks')
+parser.add_argument('--processor_nodes', type=int, default=10, help='number of processors')
 parser.add_argument('--window', type=int, default=0, help='window')
-parser.add_argument('--noise', type=float, default=0, help='noise')
-parser.add_argument('--env_type', type=str, default='QR', help='chol or LU or QR')
+parser.add_argument('--env_type', type=str, default='RouE', help='')
 parser.add_argument('--seed_env', type=int, default=42, help='Random seed env ')
+parser.add_argument('--edges', type=float, default=0.07, help='Number of edges or percentage of maximal edges for RouE case')
+parser.add_argument('--as_density', default=True, action='store_true', help="Whether to treat edge count as a density metric or fixed num")
+
 
 args = parser.parse_args()
 config_enhanced = vars(args)
 
 writer = SummaryWriter('runs')
-
-p_input = np.array([1] * args.nGPU + [0] * args.nCPU)
 
 print("Current config_enhanced is:")
 pprint(config_enhanced)
@@ -59,8 +58,12 @@ pprint(config_enhanced)
 main_path = "HPC"
 
 
-env = DAGEnv(n=args.n, node_types=p_input, window=args.window, env_type=args.env_type, noise=args.noise)
+env = RDAGEnv(args)
 env.reset()
+done = False
+while (not done):
+    _, _, done, _ = env.step(0)
+exit()
 
 model = ModelHeterogene(input_dim=args.input_dim,
                         hidden_dim=args.hidden_dim,
