@@ -29,7 +29,7 @@ parser.add_argument('--agent', type=str, default='A2C', help='A2C')
 parser.add_argument("--result_name", type=str, default="results.csv", help="filename where results are stored")
 
 # model settings
-parser.add_argument('--input_dim', type=int, default=16, help='input dim')
+parser.add_argument('--input_dim', type=int, default=19, help='input dim')
 parser.add_argument('--hidden_dim', type=int, default=128, help='hidden dim')
 parser.add_argument('--ngcn', type=int, default=0, help='number of gcn')
 parser.add_argument('--nmlp', type=int, default=1, help='number of mlp to compute probs')
@@ -45,6 +45,7 @@ parser.add_argument('--env_type', type=str, default='RouE', help='')
 parser.add_argument('--seed_env', type=int, default=42, help='Random seed env ')
 parser.add_argument('--edges', type=float, default=0.07, help='Number of edges or percentage of maximal edges for RouE case')
 parser.add_argument('--as_density', default=True, action='store_true', help="Whether to treat edge count as a density metric or fixed num")
+parser.add_argument('--noise', type=float, default=0, help='noise')
 
 
 args = parser.parse_args()
@@ -53,17 +54,16 @@ config_enhanced = vars(args)
 writer = SummaryWriter('runs')
 
 print("Current config_enhanced is:")
-pprint(config_enhanced)
+print(config_enhanced)
 
 main_path = "HPC"
 
 
 env = RDAGEnv(args)
-env.reset()
-done = False
-while (not done):
-    _, _, done, _ = env.step(0)
-exit()
+# env.reset()
+# done = False
+# while (not done):
+#     _, _, done, _ = env.step(0)
 
 model = ModelHeterogene(input_dim=args.input_dim,
                         hidden_dim=args.hidden_dim,

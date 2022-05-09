@@ -5,6 +5,8 @@ import string
 from env.utils import *
 from env.utils import compute_graph
 import heft
+from copy import deepcopy
+import ipdb
 
 class RDAGEnv(gym.Env):
     def __init__(self, args):
@@ -54,6 +56,7 @@ class RDAGEnv(gym.Env):
 
         self.critic_path_duration = None
         self.total_work_normalized = None
+        self.history = np.array([-1] * self.num_nodes)
 
         '''
         # compute heft
@@ -140,13 +143,13 @@ class RDAGEnv(gym.Env):
         if render_before:
             self.render()
 
-
         done = self._go_to_next_action()
 
         if render_after and not speed:
             self.render()
 
         reward = -self.time if done else 0
+        self.history[action] = self.current_proc
 
         info = {'episode': {'r': reward, 'length': self.num_steps, 'time': self.time}, 'bad_transition': False}
 
@@ -227,14 +230,35 @@ class RDAGEnv(gym.Env):
         # assert action in self.ready_tasks
 
         if action != -1:
-            if (self.ready_tasks[action] in self.task_comun):
-                comun_costs = max([self.cluster.communication_cost[i[0], self.current_proc] * i[1] for i in self.task_comun[self.ready_tasks[action]]])
+            #ipdb.set_trace()
+            if (action in self.task_comun):
+                comun_costs = max([self.cluster.communication_cost[i[0], self.current_proc] * i[1] for i in self.task_comun[action]])
             else:
                 comun_costs = 0
-            self.ready_proc[processor] += comun_costs + self.task_data.x[self.ready_tasks[action]] / self.processor_perf[self.current_proc]
-            self.running_task2proc[self.ready_tasks[action]] = processor
-            self.running[processor] = self.ready_tasks[action]
-            self.ready_tasks.remove(self.ready_tasks[action])
+            self.ready_proc[processor] += comun_costs + self.task_data.x[action] / self.processor_perf[self.current_proc]
+            self.running_task2proc[action] = processor
+            self.running[processor] = action
+            self.ready_tasks.remove(action)
+
+    def _calc_dependent_task(self, size):
+        #TODO: find previous task given the next task that is going to execute
+        '''
+
+        :return:
+        '''
+        store_dict = {}
+        for t in self.ready_tasks:
+            store_dict[t] = None
+
+        node_task_mx = torch.tensor(np.zeros((size, self.cluster.nodes)),dtype=torch.float)
+        # this might be slow
+        for i in range(self.task_data.edge_index.shape[1]): # 2*len
+            tail = self.task_data.edge_index[1, i]
+            head = self.task_data.edge_index[0, i]
+            weight = self.task_data.edge_attr[i]
+            if tail in self.ready_tasks:
+                node_task_mx[tail, self.history[head]] = weight
+        return node_task_mx # ready_tasks * num_of_processors, meaning how many previous results are stored on each processor
 
 
     def _compute_state(self):
@@ -242,8 +266,35 @@ class RDAGEnv(gym.Env):
                                           torch.tensor(np.concatenate((self.running[self.running > -1],
                                                                        self.ready_tasks)), dtype=torch.long),
                                           self.args.window)
-        #visible_graph.x, ready = self._compute_embeddings(node_num)
-        return {'graph': visible_graph, 'node_num': node_num, 'ready': self.ready_tasks}
+        history_mx = self._calc_dependent_task(node_num.shape[0])
+        visible_graph.x, ready = self._compute_embeddings(node_num, history_mx)
+        return {'graph': visible_graph, 'node_num': node_num, 'ready': ready, 'history': self.history}
+
+    def _compute_embeddings(self, tasks, history):
+
+        ready = isin(tasks, torch.tensor(self.ready_tasks)).float()
+        running = isin(tasks, torch.tensor(self.running[self.running > -1])).squeeze(-1)
+
+        remaining_time = torch.zeros(tasks.shape[0])
+        remaining_time[running] = self._remaining_time(tasks[running].squeeze(-1)).to(torch.float)
+        remaining_time = remaining_time.unsqueeze(-1)
+
+        n_succ = torch.sum((tasks == self.task_data.edge_index[0]).float(), dim=1).unsqueeze(-1) # task after this
+        n_pred = torch.sum((tasks == self.task_data.edge_index[1]).float(), dim=1).unsqueeze(-1) # task before this
+
+        #ipdb.set_trace()
+        #task_num = self.task_data.task_list[tasks.squeeze(-1)]
+        # add other embeddings
+
+        descendant_features_norm = self.norm_desc_features[tasks].squeeze(1)
+        #ipdb.set_trace()
+
+
+        return (torch.cat((n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
+                           descendant_features_norm, history), dim=1), # history task_num * 10
+                ready)
+            # full size would be 16 - 3 - 4 + 10
+
 
     def _remaining_time(self, running_tasks):
         return torch.tensor([self.ready_proc[self.running_task2proc[task.item()]] for task in running_tasks]) - self.time
@@ -252,8 +303,8 @@ class RDAGEnv(gym.Env):
         # return (self.task_data.edge_index.shape[-1] == 0) and (len(self.running_task2proc) == 0)
         return (self.compeur_task == self.num_nodes and (len(self.running_task2proc) == 0))
 
-    def _compute_embeddings(self, tasks):
-        return NotImplementedError
+    # def _compute_embeddings(self, tasks):
+    #     return NotImplementedError
 
     def render(self):
         raise NotImplementedError

@@ -6,6 +6,10 @@ from torch_geometric.data import Data
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 from torch_geometric.nn.conv import SAGEConv
+from typing import Optional
+from torch import Tensor
+from torch_geometric.nn import MessagePassing
+import ipdb
 
 
 class Net(torch.nn.Module):
@@ -22,15 +26,15 @@ class Net(torch.nn.Module):
 
     def forward(self, dico):
         data, num_node, ready = dico['graph'], dico['node_num'], dico['ready']
-        x, edge_index = data.x, data.edge_index
+        x, edge_index, edge_weight = data.x, data.edge_index, data.edge_weight
 
-        x = self.conv_succ1(x, edge_index)
+        x = self.conv_succ1(x, edge_index, edge_weight)
         x = F.relu(x)
-        x = self.conv_succ2(x, edge_index)
+        x = self.conv_succ2(x, edge_index, edge_weight)
         x = F.relu(x)
-        x = self.conv_pred1(x, edge_index)
+        x = self.conv_pred1(x, edge_index, edge_weight)
         x = F.relu(x)
-        x = self.conv_succ3(x, edge_index)
+        x = self.conv_succ3(x, edge_index, edge_weight)
         x = F.relu(x)
 
         probs = self.conv_probs(x, edge_index)
@@ -64,33 +68,50 @@ class ModelHeterogene(torch.nn.Module):
             self.listmlp_value.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp_value.append(Linear(hidden_dim, 1))
 
-        self.listmlp_pass.append(BaseConvHeterogene(hidden_dim+3, hidden_dim, 'mlp', withbn=withbn))
+        # if concat information
+        self.listmlp_pass.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', withbn=withbn))
         for _ in range(nmlp-2):
             self.listmlp_pass.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp_pass.append(Linear(hidden_dim, 1))
+        # whether that's on the same node with all its dependency
 
 
     def forward(self, dico):
         data, num_node, ready = dico['graph'], dico['node_num'], dico['ready']
-        x, edges = data.x, data.edge_index
-        features_cluster = x[0, -3:]
+        x, edges, weights = data.x, data.edge_index, data.edge_attr #, data.edge_attri #[2, 43], [43,]
+        # edges_weights the importance of A to C: weight fully represent bytes:
+        # 0 bytes, no message at all # A is more important to C #agent more important = same node 0 communication
+        '''
+
+        '''
+        # features_cluster = x[0, -3:]
+        # ipdb.set_trace()
 
         for layer in self.listgcn:
-            x = layer(x, edges)
+            x = layer(x, edges, weights)
+        x = x.to(torch.float)
 
         v = torch.mean(x, dim=0)
-        x_pass = torch.max(x[ready.squeeze(1).to(torch.bool)], dim=0)[0]
-        x_pass = torch.cat((x_pass, features_cluster), dim=0)
+        x_pass = torch.max(x[ready.squeeze(1).to(torch.bool)], dim=0)[0]  # embedding size 128 of all ready node
+                                                                        # embeddings selected from x representation
+        # x_pass = torch.cat((x_pass, features_cluster), dim=0)   # features_cluster embedding size 3
+        # the final size is torch.Size([131])
+        # cat information of history here
+
         for layer in self.listmlp_value:
             v = layer(v)
+
         for layer in self.listmlp:
             x = layer(x)
+
         for layer in self.listmlp_pass:
             x_pass = layer(x_pass)
 
         probs = torch.cat((x[ready.squeeze(1).to(torch.bool)].squeeze(-1), x_pass), dim=0)
         probs = F.softmax(probs)
+
         return probs, v
+
 
 class BaseConvHeterogene(torch.nn.Module):
     def __init__(self, input_dim, output_dim, type='gcn', res=False, withbn=False):
@@ -105,9 +126,9 @@ class BaseConvHeterogene(torch.nn.Module):
         if withbn:
             self.bn = torch.nn.BatchNorm1d(output_dim)
 
-    def forward(self, input_x, input_e=None):
+    def forward(self, input_x, input_e=None, weight=None):
         if self.net_type == 'gcn':
-            x = self.layer(input_x, input_e)
+            x = self.layer(input_x, input_e, edge_weight=weight)
         else:
             x = self.layer(input_x)
         if self.withbn:
