@@ -42,7 +42,6 @@ class Net(torch.nn.Module):
         v = self.value(x_mean)
         prob_nothing = self.do_nothing(x_mean)
         probs = torch.cat((probs[ready.squeeze(1).to(torch.bool)].squeeze(-1), prob_nothing), dim=0)
-
         probs = F.softmax(probs)
 
         return probs, v
@@ -106,7 +105,6 @@ class ModelHeterogene(torch.nn.Module):
 
         for layer in self.listmlp_pass:
             x_pass = layer(x_pass)
-
         probs = torch.cat((x[ready.squeeze(1).to(torch.bool)].squeeze(-1), x_pass), dim=0)
         probs = F.softmax(probs)
 

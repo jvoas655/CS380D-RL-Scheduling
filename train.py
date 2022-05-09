@@ -38,7 +38,7 @@ parser.add_argument('--res', action='store_true', default=False, help='with resi
 parser.add_argument('--withbn', action='store_true', default=False, help='with batch norm')
 
 # env settings
-parser.add_argument('--task_nodes', type=int, default=200, help='number of tasks')
+parser.add_argument('--task_nodes', type=int, default=50, help='number of tasks')
 parser.add_argument('--processor_nodes', type=int, default=10, help='number of processors')
 parser.add_argument('--window', type=int, default=0, help='window')
 parser.add_argument('--env_type', type=str, default='RouE', help='')

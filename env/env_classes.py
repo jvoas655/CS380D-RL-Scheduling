@@ -57,6 +57,8 @@ class RDAGEnv(gym.Env):
         self.critic_path_duration = None
         self.total_work_normalized = None
         self.history = np.array([-1] * self.num_nodes)
+        new_ready_tasks = torch.arange(0, self.num_nodes)[torch.logical_not(isin(torch.arange(0, self.num_nodes), self.task_data.edge_index[1, :]))]
+        self.ready_tasks = new_ready_tasks.tolist()
 
         '''
         # compute heft
@@ -81,6 +83,7 @@ class RDAGEnv(gym.Env):
             self.heft_time = max([v[-1] for v in orders.values() if len(v) > 0])
         '''
     def reset(self):
+        print("***" * 7)
         # self.task_data = random_ggen_fifo(self.n, self.max_in, self.max_out, self.noise)
         if self.args.env_type == 'RouE':
             self.task_data = ggen_roue(self.args.task_nodes, self.args.edges, self.args.as_density)
@@ -112,8 +115,9 @@ class RDAGEnv(gym.Env):
         self.task_comun = {}
         self.processor_perf = np.clip(np.random.random(self.args.processor_nodes), a_min=0.1, a_max=1) # Start node performance as random between [0,1]
         self.last_perf_update_time = 0
-        # self.ready_tasks.append(0)
+        self.ready_tasks = []
         self.current_proc = 0
+        self.history = np.array([-1] * self.num_nodes)
 
         # compute initial doable tasks
 
@@ -123,7 +127,7 @@ class RDAGEnv(gym.Env):
 
         return self._compute_state()
 
-    def step(self, action, render_before=False, render_after=False, enforce=True, speed=False):
+    def step(self, action, render_before=False, render_after=False, speed=False):
         """
         first implementation, with only [-1, 0, ..., T] actions
         :param action: -1: does nothing. t: schedules t on the current available processor
@@ -132,12 +136,9 @@ class RDAGEnv(gym.Env):
 
         self.num_steps += 1
 
-        if action == -1 and enforce:
-            if len(self.running_task2proc) == 0:
-                # the agent does nothing but every proc is available: we enforce an arbitrary action
-                action = self.ready_tasks[0]
         if action != -1:
             self.compeur_task += 1
+            self.history[self.ready_tasks[action]] = self.current_proc
         self._choose_task_processor(action, self.current_proc)
 
         if render_before:
@@ -149,7 +150,7 @@ class RDAGEnv(gym.Env):
             self.render()
 
         reward = -self.time if done else 0
-        self.history[action] = self.current_proc
+
 
         info = {'episode': {'r': reward, 'length': self.num_steps, 'time': self.time}, 'bad_transition': False}
 
@@ -190,7 +191,6 @@ class RDAGEnv(gym.Env):
         list_succ = torch.unique(list_succ)
         mask = isin(list_succ, self.task_data.edge_index[1][torch.logical_not(mask)])
         list_succ = list_succ[torch.logical_not(mask)]
-
         for task in tasks_finished:
             task_mask = isin(self.task_data.edge_index[0], task)
             requires_succ = self.task_data.edge_index[1][task_mask]
@@ -231,14 +231,14 @@ class RDAGEnv(gym.Env):
 
         if action != -1:
             #ipdb.set_trace()
-            if (action in self.task_comun):
-                comun_costs = max([self.cluster.communication_cost[i[0], self.current_proc] * i[1] for i in self.task_comun[action]])
+            if (self.ready_tasks[action] in self.task_comun):
+                comun_costs = max([self.cluster.communication_cost[i[0], processor] * i[1] for i in self.task_comun[self.ready_tasks[action]]])
             else:
                 comun_costs = 0
-            self.ready_proc[processor] += comun_costs + self.task_data.x[action] / self.processor_perf[self.current_proc]
-            self.running_task2proc[action] = processor
-            self.running[processor] = action
-            self.ready_tasks.remove(action)
+            self.ready_proc[processor] += comun_costs + self.task_data.x[self.ready_tasks[action]] / self.processor_perf[processor]
+            self.running_task2proc[self.ready_tasks[action]] = processor
+            self.running[processor] = self.ready_tasks[action]
+            self.ready_tasks.remove(self.ready_tasks[action])
 
     def _calc_dependent_task(self, size):
         #TODO: find previous task given the next task that is going to execute
@@ -288,8 +288,6 @@ class RDAGEnv(gym.Env):
 
         descendant_features_norm = self.norm_desc_features[tasks].squeeze(1)
         #ipdb.set_trace()
-
-
         return (torch.cat((n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm, history), dim=1), # history task_num * 10
                 ready)

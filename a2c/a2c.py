@@ -156,12 +156,11 @@ class A2C:
                 vals[i] = value
                 probs_entropy[i] = - (policy * policy.log()).sum(-1)
                 try:
-                    action_raw = torch.multinomial(policy, 1).detach().cpu().numpy()
+                    action_raw = torch.multinomial(policy[:-1], 1).detach().cpu().numpy()
                 except:
-                    print("chelou")
+                    print("Error 1")
                 probs[i] = policy[action_raw]
-                ready_nodes = observation['ready'].squeeze(1).to(torch.bool)
-                actions[i] = -1 if action_raw == policy.shape[-1] -1 else observation['node_num'][ready_nodes][action_raw]
+                actions[i] = -1 if action_raw == policy.shape[-1] -1 else action_raw
                 observation, rewards[i], dones[i], info = self.env.step(actions[i])
                 observation['graph'] = observation['graph'].to(device)
                 n_step += 1
@@ -296,14 +295,13 @@ class A2C:
         while not done:
             observation['graph'] = observation['graph'].to(device)
             policy, value = self.network(observation)
+
             # action_raw = torch.multinomial(policy, 1).detach().cpu().numpy()
-            action_raw = policy.argmax().detach().cpu().numpy()
+            action_raw = policy[:-1].argmax().detach().cpu().numpy()
             ready_nodes = observation['ready'].squeeze(1).to(torch.bool)
-            action = -1 if action_raw == policy.shape[-1] - 1 else \
-                observation['node_num'][ready_nodes][action_raw].detach().numpy()[0]
+            action = -1 if action_raw == policy.shape[-1] - 1 else action_raw
             try :
                 observation, reward, done, info = env.step(action)
             except KeyError:
-                print(chelou)
+                print("Error 2")
         return env.time
-
