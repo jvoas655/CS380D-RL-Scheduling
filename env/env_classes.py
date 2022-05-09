@@ -257,7 +257,7 @@ class RDAGEnv(gym.Env):
             head = self.task_data.edge_index[0, i]
             weight = self.task_data.edge_attr[i]
             if tail in self.ready_tasks:
-                node_task_mx[tail, self.history[head]] = weight
+                node_task_mx[tail, self.history[head]] += weight
         return node_task_mx # ready_tasks * num_of_processors, meaning how many previous results are stored on each processor
 
 
