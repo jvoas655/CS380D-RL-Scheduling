@@ -83,7 +83,6 @@ class RDAGEnv(gym.Env):
             self.heft_time = max([v[-1] for v in orders.values() if len(v) > 0])
         '''
     def reset(self):
-        print("***" * 7)
         # self.task_data = random_ggen_fifo(self.n, self.max_in, self.max_out, self.noise)
         if self.args.env_type == 'RouE':
             self.task_data = ggen_roue(self.args.task_nodes, self.args.edges, self.args.as_density)

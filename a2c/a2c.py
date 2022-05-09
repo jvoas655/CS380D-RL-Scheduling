@@ -156,7 +156,10 @@ class A2C:
                 vals[i] = value
                 probs_entropy[i] = - (policy * policy.log()).sum(-1)
                 try:
-                    action_raw = torch.multinomial(policy[:-1], 1).detach().cpu().numpy()
+                    if (policy.shape[0] == 1):
+                        action_raw = 0
+                    else:
+                        action_raw = torch.multinomial(policy[:-1], 1).detach().cpu().numpy()
                 except:
                     print("Error 1")
                 probs[i] = policy[action_raw]
@@ -297,7 +300,10 @@ class A2C:
             policy, value = self.network(observation)
 
             # action_raw = torch.multinomial(policy, 1).detach().cpu().numpy()
-            action_raw = policy[:-1].argmax().detach().cpu().numpy()
+            if (policy.shape[0] == 1):
+                action_raw = 0
+            else:
+                action_raw = policy[:-1].argmax().detach().cpu().numpy()
             ready_nodes = observation['ready'].squeeze(1).to(torch.bool)
             action = -1 if action_raw == policy.shape[-1] - 1 else action_raw
             try :
