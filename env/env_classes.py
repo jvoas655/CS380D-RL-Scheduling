@@ -168,7 +168,7 @@ class RDAGEnv(gym.Env):
         if action != -1:
             self.compeur_task += 1
             self.history[self.ready_tasks[action]] = self.current_proc
-        self._choose_task_processor(action, self.current_proc)
+        sched_reward = self._choose_task_processor(action, self.current_proc)
 
         if render_before:
             self.render()
@@ -178,7 +178,7 @@ class RDAGEnv(gym.Env):
         if render_after and not speed:
             self.render()
 
-        reward = -self.time if done else 0
+        reward = -self.time if done else -sched_reward
         if (done):
             print("HEFT", self.heft_time, "TIME", self.time, "COMP", self.comp_sum, "COMM", self.comm_sum)
             print("UTILS", self.utilization / self.time)
@@ -287,6 +287,7 @@ class RDAGEnv(gym.Env):
             self.running_task2proc[self.ready_tasks[action]] = processor
             self.running[processor] = self.ready_tasks[action]
             self.ready_tasks.remove(self.ready_tasks[action])
+            return comun_costs
 
     def _calc_dependent_task(self, size):
         #TODO: find previous task given the next task that is going to execute
@@ -313,13 +314,12 @@ class RDAGEnv(gym.Env):
                                           torch.tensor(np.concatenate((self.running[self.running > -1],
                                                                        self.ready_tasks)), dtype=torch.long),
                                           self.args.window)
-        history_mx = self._calc_dependent_task(node_num.shape[0])
-        visible_graph.x, ready = self._compute_embeddings(node_num, history_mx, visible_graph.x)
+        #history_mx = self._calc_dependent_task(node_num.shape[0])
+        visible_graph.x, ready = self._compute_embeddings(node_num, visible_graph.x)
         cluster_emb = self._compute_cluster_embeddings() # size = processor_num * 3
-        return {'graph': visible_graph, 'node_num': node_num, 'ready': ready, 'history': self.history, 'cluster': cluster_emb}
+        return {'graph': visible_graph, 'node_num': node_num, 'ready': ready, 'cluster': cluster_emb}
 
-    def _compute_embeddings(self, tasks, history, time):
-
+    def _compute_embeddings(self, tasks, time):
         ready = isin(tasks, torch.tensor(self.ready_tasks)).float()
         running = isin(tasks, torch.tensor(self.running[self.running > -1])).squeeze(-1)
 
@@ -338,9 +338,16 @@ class RDAGEnv(gym.Env):
         running_time_norm = torch.norm(running_time)
         if (running_time_norm.is_nonzero()):
             running_time = torch.div(running_time, running_time_norm)
+        comun_time = torch.zeros(tasks.shape[0])
+        for task in range(tasks.shape[0]):
+            if (ready[task].is_nonzero()):
+                if (tasks[task].item() in self.task_comun):
+                    comun_time[task] = max([self.cluster.communication_cost[i[0], self.current_proc] * i[1] for i in self.task_comun[tasks[task].item()]])
+                else:
+                    comun_time[task] = 0
         #ipdb.set_trace()
-        return (torch.cat((running_time, n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
-                           descendant_features_norm, history), dim=1), # history task_num * 10
+        return (torch.cat((n_succ, comun_time.unsqueeze(-1), ready, running.unsqueeze(-1).float(), remaining_time,
+                           descendant_features_norm), dim=1), # history task_num * 10
                 ready)
             # full size would be 16 - 3 - 4 + 10
 
@@ -351,7 +358,10 @@ class RDAGEnv(gym.Env):
         if (aval_time_norm.is_nonzero()):
             aval_time = torch.div(aval_time, aval_time_norm)
         aval = torch.tensor(self.ready_proc == 0, dtype=torch.float).unsqueeze(1)
-        return torch.cat((performance, aval, aval_time), dim=1) # cluster embedding, processor_num * 3
+        cur_proc = torch.zeros(self.processor_perf.shape[0], dtype=torch.float)
+        cur_proc[self.current_proc] = 1
+        cur_proc = cur_proc.unsqueeze(1)
+        return torch.cat((performance, aval, aval_time, cur_proc), dim=1) # cluster embedding, processor_num * 3
 
     def _remaining_time(self, running_tasks):
         return torch.tensor([self.ready_proc[self.running_task2proc[task.item()]] for task in running_tasks]) - self.time

@@ -72,8 +72,8 @@ class ModelHeterogene(torch.nn.Module):
         for _ in range(nmlp_value-1):
             self.listmlp_value.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp_value.append(Linear(hidden_dim, 1))
-        self.cluster_linear_pass = Linear(3*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
-        self.cluster_linear = Linear(3*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
+        self.cluster_linear_pass = Linear(4*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
+        self.cluster_linear = Linear(4*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
         # if concat information
         self.listmlp_pass.append(BaseConvHeterogene(hidden_dim + cluster_hidden_dim, hidden_dim, 'mlp', withbn=withbn))
         for _ in range(nmlp-2):
@@ -116,17 +116,17 @@ class ModelHeterogene(torch.nn.Module):
             x = layer(x)
         for layer in self.listmlp_pass:
             x_pass = layer(x_pass)
-        if(check_nan(x)): 
+        if(check_nan(x)):
           ipdb.set_trace()
           print("NAN occured in X")
-        if(check_nan(x_pass)): 
+        if(check_nan(x_pass)):
           ipdb.set_trace()
           print("NAN occured x_pass")
-        
+
         probs = torch.cat((x[ready.squeeze(1).to(torch.bool)].squeeze(-1), x_pass), dim=0)
         #ipdb.set_trace()
         probs = F.softmax(probs)
-        
+
 
         return probs, v
 
