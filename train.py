@@ -29,7 +29,7 @@ parser.add_argument('--agent', type=str, default='A2C', help='A2C')
 parser.add_argument("--result_name", type=str, default="results.csv", help="filename where results are stored")
 
 # model settings
-parser.add_argument('--input_dim', type=int, default=9, help='input dim')
+parser.add_argument('--input_dim', type=int, default=10, help='input dim')
 parser.add_argument('--hidden_dim', type=int, default=128, help='hidden dim')
 parser.add_argument('--cluster_hidden_dim', type=int, default=16, help='cluster hidden dim')
 parser.add_argument('--ngcn', type=int, default=0, help='number of gcn')

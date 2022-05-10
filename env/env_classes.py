@@ -346,7 +346,7 @@ class RDAGEnv(gym.Env):
                 else:
                     comun_time[task] = 0
         #ipdb.set_trace()
-        return (torch.cat((n_succ, comun_time.unsqueeze(-1), ready, running.unsqueeze(-1).float(), remaining_time,
+        return (torch.cat((running_time, n_succ, comun_time.unsqueeze(-1), ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm), dim=1), # history task_num * 10
                 ready)
             # full size would be 16 - 3 - 4 + 10
