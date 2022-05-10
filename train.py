@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model_path', type=str, default='none', help='path to load model')
 parser.add_argument('--num_env_steps', type=int, default=10 ** 4, help='num env steps')
 parser.add_argument('--num_processes', type=int, default=1, help='num proc')
-parser.add_argument('--lr', type=float, default=10 ** -2, help='learning rate')
+parser.add_argument('--lr', type=float, default=10 ** -3, help='learning rate')
 parser.add_argument('--eps', type=float, default=10 ** -1, help='Random seed.')
 parser.add_argument('--optimizer', type=str, default='rms', help='sgd or adam or rms')
 parser.add_argument('--scheduler', type=str, default='lambda', help='lambda or cyclic')
@@ -29,16 +29,17 @@ parser.add_argument('--agent', type=str, default='A2C', help='A2C')
 parser.add_argument("--result_name", type=str, default="results.csv", help="filename where results are stored")
 
 # model settings
-parser.add_argument('--input_dim', type=int, default=20, help='input dim')
+parser.add_argument('--input_dim', type=int, default=19, help='input dim')
 parser.add_argument('--hidden_dim', type=int, default=128, help='hidden dim')
+parser.add_argument('--cluster_hidden_dim', type=int, default=16, help='cluster hidden dim')
 parser.add_argument('--ngcn', type=int, default=0, help='number of gcn')
-parser.add_argument('--nmlp', type=int, default=1, help='number of mlp to compute probs')
+parser.add_argument('--nmlp', type=int, default=2, help='number of mlp to compute probs')
 parser.add_argument('--nmlp_value', type=int, default=1, help='number of mlp to compute v')
 parser.add_argument('--res', action='store_true', default=False, help='with residual connexion')
 parser.add_argument('--withbn', action='store_true', default=False, help='with batch norm')
 
 # env settings
-parser.add_argument('--task_nodes', type=int, default=50, help='number of tasks')
+parser.add_argument('--task_nodes', type=int, default=30, help='number of tasks')
 parser.add_argument('--processor_nodes', type=int, default=10, help='number of processors')
 parser.add_argument('--window', type=int, default=0, help='window')
 parser.add_argument('--env_type', type=str, default='RouE', help='')
@@ -67,6 +68,7 @@ env = RDAGEnv(args)
 
 model = ModelHeterogene(input_dim=args.input_dim,
                         hidden_dim=args.hidden_dim,
+                        cluster_hidden_dim=args.cluster_hidden_dim,
                         ngcn=args.ngcn,
                         nmlp=args.nmlp,
                         nmlp_value=args.nmlp_value,

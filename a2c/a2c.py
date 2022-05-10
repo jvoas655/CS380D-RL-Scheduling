@@ -161,6 +161,7 @@ class A2C:
                     else:
                         action_raw = torch.multinomial(policy[:-1], 1).detach().cpu().numpy()
                 except:
+                    print(policy)
                     print("Error 1")
                 probs[i] = policy[action_raw]
                 actions[i] = -1 if action_raw == policy.shape[-1] -1 else action_raw
