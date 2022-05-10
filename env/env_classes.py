@@ -285,11 +285,11 @@ class RDAGEnv(gym.Env):
                                                                        self.ready_tasks)), dtype=torch.long),
                                           self.args.window)
         history_mx = self._calc_dependent_task(node_num.shape[0])
-        visible_graph.x, ready = self._compute_embeddings(node_num, history_mx)
+        visible_graph.x, ready = self._compute_embeddings(node_num, history_mx, visible_graph.x)
         cluster_emb = self._compute_cluster_embeddings() # size = processor_num * 3
         return {'graph': visible_graph, 'node_num': node_num, 'ready': ready, 'history': self.history, 'cluster': cluster_emb}
 
-    def _compute_embeddings(self, tasks, history):
+    def _compute_embeddings(self, tasks, history, time):
 
         ready = isin(tasks, torch.tensor(self.ready_tasks)).float()
         running = isin(tasks, torch.tensor(self.running[self.running > -1])).squeeze(-1)
@@ -304,7 +304,7 @@ class RDAGEnv(gym.Env):
         # add other embeddings
 
         descendant_features_norm = self.norm_desc_features[tasks].squeeze(1)
-        running_time = torch.tensor(tasks.x, dtype=torch.float)
+        running_time = torch.tensor(time, dtype=torch.float)
         return (torch.cat((running_time, n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm, history), dim=1), # history task_num * 10
                 ready)
