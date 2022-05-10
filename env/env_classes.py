@@ -54,7 +54,12 @@ class RDAGEnv(gym.Env):
         self.compeur_task = 0
         self.last_perf_update_time = 0
         self.current_proc = 0
-
+        self.comm_sum = 0
+        self.comp_sum = 0
+        self.comm_factors = []
+        self.utilization = np.zeros(self.args.processor_nodes)
+        self.wait_free_utilization = np.zeros(self.args.processor_nodes)
+        self.task_to_comm_time = {}
         self.critic_path_duration = None
         self.total_work_normalized = None
         self.history = np.array([-1] * self.num_nodes)
@@ -117,7 +122,12 @@ class RDAGEnv(gym.Env):
         self.ready_tasks = []
         self.current_proc = 0
         self.history = np.array([-1] * self.num_nodes)
-
+        self.comm_sum = 0
+        self.comp_sum = 0
+        self.comm_factors = []
+        self.utilization = np.zeros(self.args.processor_nodes)
+        self.wait_free_utilization = np.zeros(self.args.processor_nodes)
+        self.task_to_comm_time = {}
         # compute initial doable tasks
 
         new_ready_tasks = torch.arange(0, self.num_nodes)[torch.logical_not(isin(torch.arange(0, self.num_nodes), self.task_data.edge_index[1, :]))]
@@ -142,7 +152,6 @@ class RDAGEnv(gym.Env):
             else:
                 return float("inf")
         orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
-
         self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
 
         return self._compute_state()
@@ -164,12 +173,17 @@ class RDAGEnv(gym.Env):
         if render_before:
             self.render()
 
-        done = self._go_to_next_action()
+        done, step_reward = self._go_to_next_action()
 
         if render_after and not speed:
             self.render()
 
-        reward = self.heft_time - self.time if done else 0
+        reward = -self.time if done else 0
+        if (done):
+            print("HEFT", self.heft_time, "TIME", self.time, "COMP", self.comp_sum, "COMM", self.comm_sum)
+            print("UTILS", self.utilization / self.time)
+            print("WF UTILS", self.wait_free_utilization / self.time)
+            print("COMM DISCOUNT", np.mean(self.comm_factors))
 
 
         info = {'episode': {'r': reward, 'length': self.num_steps, 'time': self.time}, 'bad_transition': False}
@@ -233,18 +247,22 @@ class RDAGEnv(gym.Env):
         #new_ready_tasks = list_succ[torch.logical_not(isin(list_succ, self.task_data.edge_index[1, :]))]
         self.ready_tasks += list_succ.tolist()
         self.current_proc = 0
+        comm_reward = 0
+        for task in tasks_finished:
+            comm_reward -= self.task_to_comm_time[task]
+        return comm_reward
 
     def _go_to_next_action(self):
+        rewards = []
         while len(self.ready_tasks) == 0:
-            self._forward_in_time()
+            rewards.append(self._forward_in_time())
             if self._isdone():
-                print(self.time)
-                return True
+                return True, np.sum(rewards)
         while (True):
             if (self._find_available_proc()):
-                return False
+                return False, np.sum(rewards)
             else:
-                self._forward_in_time()
+                rewards.append(self._forward_in_time())
 
     def _choose_task_processor(self, action, processor):
         # assert action in self.ready_tasks
@@ -255,7 +273,17 @@ class RDAGEnv(gym.Env):
                 comun_costs = max([self.cluster.communication_cost[i[0], processor] * i[1] for i in self.task_comun[self.ready_tasks[action]]])
             else:
                 comun_costs = 0
+            if (comun_costs > 0):
+                self.comm_factors.append(1)
+            else:
+                self.comm_factors.append(0)
+            self.task_to_comm_time[self.ready_tasks[action]] = comun_costs
+            self.comm_sum += comun_costs
+            self.comp_sum += self.task_data.x[self.ready_tasks[action]] / self.processor_perf[processor]
+
             self.ready_proc[processor] += comun_costs + self.task_data.x[self.ready_tasks[action]] / self.processor_perf[processor]
+            self.utilization[processor] += comun_costs + self.task_data.x[self.ready_tasks[action]] / self.processor_perf[processor]
+            self.wait_free_utilization[processor] += self.task_data.x[self.ready_tasks[action]] / self.processor_perf[processor]
             self.running_task2proc[self.ready_tasks[action]] = processor
             self.running[processor] = self.ready_tasks[action]
             self.ready_tasks.remove(self.ready_tasks[action])
@@ -305,7 +333,11 @@ class RDAGEnv(gym.Env):
         # add other embeddings
 
         descendant_features_norm = self.norm_desc_features[tasks].squeeze(1)
-        running_time = 0.6 - torch.tensor(time, dtype=torch.float)/100 # Causing error
+
+        running_time = torch.tensor(time, dtype=torch.float) # Causing error
+        running_time_norm = torch.norm(running_time)
+        if (running_time_norm.is_nonzero()):
+            running_time = torch.div(running_time, running_time_norm)
         #ipdb.set_trace()
         return (torch.cat((running_time, n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm, history), dim=1), # history task_num * 10
@@ -314,7 +346,10 @@ class RDAGEnv(gym.Env):
 
     def _compute_cluster_embeddings(self):
         performance = torch.tensor(self.processor_perf, dtype=torch.float).unsqueeze(1)
-        aval_time = 0.7 - torch.tensor(self.ready_proc, dtype=torch.float).unsqueeze(1)/100  # Causing error
+        aval_time = torch.tensor(self.ready_proc, dtype=torch.float).unsqueeze(1)  # Causing error
+        aval_time_norm = torch.norm(aval_time)
+        if (aval_time_norm.is_nonzero()):
+            aval_time = torch.div(aval_time, aval_time_norm)
         aval = torch.tensor(self.ready_proc == 0, dtype=torch.float).unsqueeze(1)
         return torch.cat((performance, aval, aval_time), dim=1) # cluster embedding, processor_num * 3
 

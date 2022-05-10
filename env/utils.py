@@ -13,7 +13,7 @@ import os
 import pickle as pkl
 
 # Heterougenous case
-durations_mean_vars = [(18, 2), (57, 20), (52, 3), (95, 8)]
+durations_mean_vars = [(57, 20), (52, 3), (95, 8)]
 
 class TaskGraph(Data):
 
