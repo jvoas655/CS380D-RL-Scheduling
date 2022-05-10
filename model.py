@@ -95,7 +95,7 @@ class ModelHeterogene(torch.nn.Module):
         x_pass = torch.max(x[ready.squeeze(1).to(torch.bool)], dim=0)[0]  # embedding size 128 of all ready node
                                                                         # embeddings selected from x representation
         features_cluster = self.cluster_linear(torch.flatten(proc_emb).unsqueeze(0)) # 1*3*num_proc
-        x_pass = torch.cat((x_pass, features_cluster), dim=0)   # features_cluster embedding size 3
+        x_pass = torch.cat((x_pass, features_cluster.squeeze(0)), dim=0)   # features_cluster embedding size 3
         # the final size is torch.Size([131])
         # cat information of history here
 
