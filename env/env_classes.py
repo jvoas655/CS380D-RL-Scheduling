@@ -279,7 +279,6 @@ class RDAGEnv(gym.Env):
                 node_task_mx[tail, self.history[head]] += weight
         return node_task_mx # ready_tasks * num_of_processors, meaning how many previous results are stored on each processor
 
-
     def _compute_state(self):
         visible_graph, node_num = compute_sub_graph(self.task_data,
                                           torch.tensor(np.concatenate((self.running[self.running > -1],
@@ -287,7 +286,8 @@ class RDAGEnv(gym.Env):
                                           self.args.window)
         history_mx = self._calc_dependent_task(node_num.shape[0])
         visible_graph.x, ready = self._compute_embeddings(node_num, history_mx)
-        return {'graph': visible_graph, 'node_num': node_num, 'ready': ready, 'history': self.history}
+        cluster_emb = self._compute_cluster_embeddings() # size = processor_num * 3
+        return {'graph': visible_graph, 'node_num': node_num, 'ready': ready, 'history': self.history, 'cluster': cluster_emb}
 
     def _compute_embeddings(self, tasks, history):
 
@@ -301,17 +301,20 @@ class RDAGEnv(gym.Env):
         n_succ = torch.sum((tasks == self.task_data.edge_index[0]).float(), dim=1).unsqueeze(-1) # task after this
         n_pred = torch.sum((tasks == self.task_data.edge_index[1]).float(), dim=1).unsqueeze(-1) # task before this
 
-        #ipdb.set_trace()
-        #task_num = self.task_data.task_list[tasks.squeeze(-1)]
         # add other embeddings
 
         descendant_features_norm = self.norm_desc_features[tasks].squeeze(1)
-        #ipdb.set_trace()
-        return (torch.cat((n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
+        running_time = torch.tensor(tasks.x, dtype=torch.float)
+        return (torch.cat((running_time, n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm, history), dim=1), # history task_num * 10
                 ready)
             # full size would be 16 - 3 - 4 + 10
 
+    def _compute_cluster_embeddings(self):
+        performance = torch.tensor(self.processor_perf, dtype=torch.float).unsqueeze(1)
+        aval_time = torch.tensor(self.ready_proc, dtype=torch.float).unsqueeze(1)
+        aval = torch.tensor(self.ready_proc == 0, dtype=torch.float).unsqueeze(1)
+        return torch.cat((performance, aval_time, aval), dim=1) # cluster embedding, processor_num * 3
 
     def _remaining_time(self, running_tasks):
         return torch.tensor([self.ready_proc[self.running_task2proc[task.item()]] for task in running_tasks]) - self.time

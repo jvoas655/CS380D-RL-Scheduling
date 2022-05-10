@@ -47,7 +47,7 @@ class Net(torch.nn.Module):
         return probs, v
 
 class ModelHeterogene(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, ngcn=2, nmlp=1, nmlp_value=1, res=False, withbn=False):
+    def __init__(self, input_dim, hidden_dim=128, ngcn=2, nmlp=1, nmlp_value=1, res=False, withbn=False, processor_nodes=10):
         super(ModelHeterogene, self).__init__()
         self.ngcn = ngcn
         self.nmlp = nmlp
@@ -66,9 +66,10 @@ class ModelHeterogene(torch.nn.Module):
         for _ in range(nmlp_value-1):
             self.listmlp_value.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp_value.append(Linear(hidden_dim, 1))
+        self.cluster_linear = Linear(3*processor_nodes, 16, bias=True) # 10*16
 
         # if concat information
-        self.listmlp_pass.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', withbn=withbn))
+        self.listmlp_pass.append(BaseConvHeterogene(hidden_dim+16, hidden_dim, 'mlp', withbn=withbn))
         for _ in range(nmlp-2):
             self.listmlp_pass.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp_pass.append(Linear(hidden_dim, 1))
@@ -76,7 +77,7 @@ class ModelHeterogene(torch.nn.Module):
 
 
     def forward(self, dico):
-        data, num_node, ready = dico['graph'], dico['node_num'], dico['ready']
+        data, num_node, ready, proc_emb = dico['graph'], dico['node_num'], dico['ready'], dico['cluster']
         x, edges, weights = data.x, data.edge_index, data.edge_attr #, data.edge_attri #[2, 43], [43,]
         # edges_weights the importance of A to C: weight fully represent bytes:
         # 0 bytes, no message at all # A is more important to C #agent more important = same node 0 communication
@@ -93,7 +94,8 @@ class ModelHeterogene(torch.nn.Module):
         v = torch.mean(x, dim=0)
         x_pass = torch.max(x[ready.squeeze(1).to(torch.bool)], dim=0)[0]  # embedding size 128 of all ready node
                                                                         # embeddings selected from x representation
-        # x_pass = torch.cat((x_pass, features_cluster), dim=0)   # features_cluster embedding size 3
+        features_cluster = self.cluster_linear(torch.flatten(proc_emb).unsqueeze(0)) # 1*3*num_proc
+        x_pass = torch.cat((x_pass, features_cluster), dim=0)   # features_cluster embedding size 3
         # the final size is torch.Size([131])
         # cat information of history here
 
