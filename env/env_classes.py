@@ -7,6 +7,7 @@ from env.utils import compute_graph
 import heft
 from copy import deepcopy
 import ipdb
+from torch.nn import functional as F
 
 class RDAGEnv(gym.Env):
     def __init__(self, args):
@@ -304,17 +305,18 @@ class RDAGEnv(gym.Env):
         # add other embeddings
 
         descendant_features_norm = self.norm_desc_features[tasks].squeeze(1)
-        #running_time = torch.tensor(time, dtype=torch.float) # Causing error
-        return (torch.cat((n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
+        running_time = 0.6 - torch.tensor(time, dtype=torch.float)/100 # Causing error
+        #ipdb.set_trace()
+        return (torch.cat((running_time, n_succ, n_pred, ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm, history), dim=1), # history task_num * 10
                 ready)
             # full size would be 16 - 3 - 4 + 10
 
     def _compute_cluster_embeddings(self):
         performance = torch.tensor(self.processor_perf, dtype=torch.float).unsqueeze(1)
-        # aval_time = torch.tensor(self.ready_proc, dtype=torch.float).unsqueeze(1)  # Causing error
+        aval_time = 0.7 - torch.tensor(self.ready_proc, dtype=torch.float).unsqueeze(1)/100  # Causing error
         aval = torch.tensor(self.ready_proc == 0, dtype=torch.float).unsqueeze(1)
-        return torch.cat((performance, aval), dim=1) # cluster embedding, processor_num * 3
+        return torch.cat((performance, aval, aval_time), dim=1) # cluster embedding, processor_num * 3
 
     def _remaining_time(self, running_tasks):
         return torch.tensor([self.ready_proc[self.running_task2proc[task.item()]] for task in running_tasks]) - self.time

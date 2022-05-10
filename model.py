@@ -11,6 +11,11 @@ from torch import Tensor
 from torch_geometric.nn import MessagePassing
 import ipdb
 
+def check_nan(this_tensor):
+  nan = torch.isnan(this_tensor).to(torch.int)
+  if torch.sum(nan) > 0: return True
+  else: return False
+
 
 class Net(torch.nn.Module):
     def __init__(self, input_dim):
@@ -60,15 +65,15 @@ class ModelHeterogene(torch.nn.Module):
         self.listgcn.append(BaseConvHeterogene(input_dim, hidden_dim, 'gcn', withbn=withbn))
         for _ in range(ngcn-1):
             self.listgcn.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'gcn', res=res, withbn=withbn))
-        self.listmlp.append(BaseConvHeterogene(hidden_dim+cluster_hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
+        self.listmlp.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         for _ in range(nmlp-2):
             self.listmlp.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp.append(Linear(hidden_dim, 1))
         for _ in range(nmlp_value-1):
             self.listmlp_value.append(BaseConvHeterogene(hidden_dim, hidden_dim, 'mlp', res=res, withbn=withbn))
         self.listmlp_value.append(Linear(hidden_dim, 1))
-        self.cluster_linear_pass = Linear(2*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
-        self.cluster_linear = Linear(2*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
+        self.cluster_linear_pass = Linear(3*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
+        self.cluster_linear = Linear(3*processor_nodes, cluster_hidden_dim, bias=True) # 10*16
         # if concat information
         self.listmlp_pass.append(BaseConvHeterogene(hidden_dim + cluster_hidden_dim, hidden_dim, 'mlp', withbn=withbn))
         for _ in range(nmlp-2):
@@ -95,13 +100,15 @@ class ModelHeterogene(torch.nn.Module):
         v = torch.mean(x, dim=0)
         x_pass = torch.max(x[ready.squeeze(1).to(torch.bool)], dim=0)[0]  # embedding size 128 of all ready node
                                                                         # embeddings selected from x representation
-        features_cluster_pass = self.cluster_linear_pass(torch.flatten(proc_emb).unsqueeze(0)) # 1*3*num_proc
+        #features_cluster_pass = self.cluster_linear_pass(torch.flatten(proc_emb).unsqueeze(0)) # 1*3*num_proc
         features_cluster = self.cluster_linear(torch.flatten(proc_emb).unsqueeze(0)) # 1*3*num_proc
-        x_pass = torch.cat((x_pass, features_cluster_pass.squeeze(0)), dim=0)   # features_cluster embedding size 3
-        x = torch.cat((x, features_cluster.repeat((x.shape[0], 1))), dim=1)   # features_cluster embedding size 3
+        #ipdb.set_trace()
+        x_pass = torch.cat((x_pass, features_cluster.squeeze(0)), dim=0)   # features_cluster embedding size 3
+        # size 144
+        # x = torch.cat((x, features_cluster.repeat((x.shape[0], 1))), dim=1)   # features_cluster embedding size 3
         # the final size is torch.Size([131])
         # cat information of history here
-
+        #ipdb.set_trace()
         for layer in self.listmlp_value:
             v = layer(v)
 
@@ -109,9 +116,17 @@ class ModelHeterogene(torch.nn.Module):
             x = layer(x)
         for layer in self.listmlp_pass:
             x_pass = layer(x_pass)
+        if(check_nan(x)): 
+          ipdb.set_trace()
+          print("NAN occured in X")
+        if(check_nan(x_pass)): 
+          ipdb.set_trace()
+          print("NAN occured x_pass")
+        
         probs = torch.cat((x[ready.squeeze(1).to(torch.bool)].squeeze(-1), x_pass), dim=0)
-
+        #ipdb.set_trace()
         probs = F.softmax(probs)
+        
 
         return probs, v
 
