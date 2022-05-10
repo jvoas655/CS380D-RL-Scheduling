@@ -60,28 +60,27 @@ class RDAGEnv(gym.Env):
         new_ready_tasks = torch.arange(0, self.num_nodes)[torch.logical_not(isin(torch.arange(0, self.num_nodes), self.task_data.edge_index[1, :]))]
         self.ready_tasks = new_ready_tasks.tolist()
 
-        '''
+
         # compute heft
-        string_cluster = string.printable[:self.p]
+        string_cluster = string.printable[:self.args.processor_nodes]
         dic_heft = {}
         for edge in np.array(self.task_data.edge_index.t()):
             dic_heft[edge[0]] = dic_heft.get(edge[0], ()) + (edge[1],)
 
         def compcost(job, agent):
             idx = string_cluster.find(agent)
-            duration = self.task_data.task_list[job].durations[self.cluster.node_types[idx]]
+            duration = self.task_data.x[idx]
             return duration
 
         def commcost(ni, nj, A, B):
-            return 0
-
+            edge = np.logical_and(self.task_data.edge_index[0] == ni, self.task_data.edge_index[1] == nj)
+            if (np.any(np.where(edge > 0, True, False))):
+                return self.cluster.communication_cost[int(A)][int(B)] * self.task_data.edge_attr[np.argmax(edge).item()].item()
+            else:
+                return float("inf")
         orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
-        try:
-            self.heft_time = orders[jobson[self.num_nodes - 1]][-1].end
-        except:
-            # ok if test
-            self.heft_time = max([v[-1] for v in orders.values() if len(v) > 0])
-        '''
+
+        self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
     def reset(self):
         # self.task_data = random_ggen_fifo(self.n, self.max_in, self.max_out, self.noise)
         if self.args.env_type == 'RouE':
@@ -124,6 +123,27 @@ class RDAGEnv(gym.Env):
         self.ready_tasks = new_ready_tasks.tolist()
         self.compeur_task = 0
 
+        # compute heft
+        string_cluster = string.printable[:self.args.processor_nodes]
+        dic_heft = {}
+        for edge in np.array(self.task_data.edge_index.t()):
+            dic_heft[edge[0]] = dic_heft.get(edge[0], ()) + (edge[1],)
+
+        def compcost(job, agent):
+            idx = string_cluster.find(agent)
+            duration = self.task_data.x[idx]
+            return duration
+
+        def commcost(ni, nj, A, B):
+            edge = np.logical_and(self.task_data.edge_index[0] == ni, self.task_data.edge_index[1] == nj)
+            if (np.any(np.where(edge > 0, True, False))):
+                return self.cluster.communication_cost[int(A)][int(B)] * self.task_data.edge_attr[np.argmax(edge).item()].item()
+            else:
+                return float("inf")
+        orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
+
+        self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
+
         return self._compute_state()
 
     def step(self, action, render_before=False, render_after=False, speed=False):
@@ -148,7 +168,7 @@ class RDAGEnv(gym.Env):
         if render_after and not speed:
             self.render()
 
-        reward = -self.time if done else 0
+        reward = self.heft_time - self.time if done else 0
 
 
         info = {'episode': {'r': reward, 'length': self.num_steps, 'time': self.time}, 'bad_transition': False}
