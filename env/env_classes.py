@@ -345,6 +345,10 @@ class RDAGEnv(gym.Env):
                     comun_time[task] = max([self.cluster.communication_cost[i[0], self.current_proc] * i[1] for i in self.task_comun[tasks[task].item()]])
                 else:
                     comun_time[task] = 0
+        if comun_time.shape[0] == 0: max_val = 0.1
+        else: max_val = torch.max(comun_time).item()
+        a = max(1, max_val)
+        comun_time = comun_time/ a
         #ipdb.set_trace()
         return (torch.cat((running_time, n_succ, comun_time.unsqueeze(-1), ready, running.unsqueeze(-1).float(), remaining_time,
                            descendant_features_norm), dim=1), # history task_num * 10
