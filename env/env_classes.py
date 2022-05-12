@@ -66,7 +66,7 @@ class RDAGEnv(gym.Env):
         new_ready_tasks = torch.arange(0, self.num_nodes)[torch.logical_not(isin(torch.arange(0, self.num_nodes), self.task_data.edge_index[1, :]))]
         self.ready_tasks = new_ready_tasks.tolist()
 
-
+        '''
         # compute heft
         string_cluster = string.printable[:self.args.processor_nodes]
         dic_heft = {}
@@ -87,6 +87,7 @@ class RDAGEnv(gym.Env):
         orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
 
         self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
+        '''
     def reset(self):
         # self.task_data = random_ggen_fifo(self.n, self.max_in, self.max_out, self.noise)
         if self.args.env_type == 'RouE':
@@ -133,7 +134,7 @@ class RDAGEnv(gym.Env):
         new_ready_tasks = torch.arange(0, self.num_nodes)[torch.logical_not(isin(torch.arange(0, self.num_nodes), self.task_data.edge_index[1, :]))]
         self.ready_tasks = new_ready_tasks.tolist()
         self.compeur_task = 0
-
+        '''
         # compute heft
         string_cluster = string.printable[:self.args.processor_nodes]
         dic_heft = {}
@@ -153,7 +154,7 @@ class RDAGEnv(gym.Env):
                 return float("inf")
         orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
         self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
-
+        '''
         return self._compute_state()
 
     def step(self, action, render_before=False, render_after=False, speed=False):
@@ -180,7 +181,7 @@ class RDAGEnv(gym.Env):
 
         reward = -self.time if done else -sched_reward
         if (done):
-            print("HEFT", self.heft_time, "TIME", self.time, "COMP", self.comp_sum, "COMM", self.comm_sum)
+            print("TIME", self.time, "COMP", self.comp_sum, "COMM", self.comm_sum)
             print("UTILS", self.utilization / self.time)
             print("WF UTILS", self.wait_free_utilization / self.time)
             print("COMM DISCOUNT", np.mean(self.comm_factors))
