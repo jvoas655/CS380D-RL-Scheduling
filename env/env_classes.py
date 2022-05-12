@@ -8,6 +8,7 @@ import heft
 from copy import deepcopy
 import ipdb
 from torch.nn import functional as F
+import random
 
 class RDAGEnv(gym.Env):
     def __init__(self, args):
@@ -40,6 +41,7 @@ class RDAGEnv(gym.Env):
             raise NotImplementedError
         else:
             raise EnvironmentError('not implemented')
+        self.sum_dur = np.sum(self.task_data.x.numpy()) / self.args.processor_nodes
         self.num_nodes = self.task_data.num_nodes
         self.sum_task = torch.sum(self.task_data.x, dim=0)
         self.norm_desc_features = self.task_data.add_features_descendant()[0] / self.sum_task
@@ -49,7 +51,7 @@ class RDAGEnv(gym.Env):
         self.ready_proc = np.zeros(self.args.processor_nodes)  # for each processor, the time where it becomes available
         self.ready_tasks = []
         self.task_comun = {}
-        self.processor_perf = np.random.random(self.args.processor_nodes) # Start node performance as random between [0,1]
+        self.processor_perf = np.ones(self.args.processor_nodes) # Start node performance as random between [0,1]
         self.processed = {}
         self.compeur_task = 0
         self.last_perf_update_time = 0
@@ -58,6 +60,7 @@ class RDAGEnv(gym.Env):
         self.comp_sum = 0
         self.comm_factors = []
         self.utilization = np.zeros(self.args.processor_nodes)
+        self.selection_rate = np.zeros(self.args.processor_nodes)
         self.wait_free_utilization = np.zeros(self.args.processor_nodes)
         self.task_to_comm_time = {}
         self.critic_path_duration = None
@@ -65,32 +68,13 @@ class RDAGEnv(gym.Env):
         self.history = np.array([-1] * self.num_nodes)
         new_ready_tasks = torch.arange(0, self.num_nodes)[torch.logical_not(isin(torch.arange(0, self.num_nodes), self.task_data.edge_index[1, :]))]
         self.ready_tasks = new_ready_tasks.tolist()
+        # Dynamic HEFT baseline
+        self.heft = False
 
-        '''
-        # compute heft
-        string_cluster = string.printable[:self.args.processor_nodes]
-        dic_heft = {}
-        for edge in np.array(self.task_data.edge_index.t()):
-            dic_heft[edge[0]] = dic_heft.get(edge[0], ()) + (edge[1],)
-
-        def compcost(job, agent):
-            idx = string_cluster.find(agent)
-            duration = self.task_data.x[idx]
-            return duration
-
-        def commcost(ni, nj, A, B):
-            edge = np.logical_and(self.task_data.edge_index[0] == ni, self.task_data.edge_index[1] == nj)
-            if (np.any(np.where(edge > 0, True, False))):
-                return self.cluster.communication_cost[int(A)][int(B)] * self.task_data.edge_attr[np.argmax(edge).item()].item()
-            else:
-                return float("inf")
-        orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
-
-        self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
-        '''
     def reset(self):
         # self.task_data = random_ggen_fifo(self.n, self.max_in, self.max_out, self.noise)
         if self.args.env_type == 'RouE':
+            pass
             self.task_data = ggen_roue(self.args.task_nodes, self.args.edges, self.args.as_density)
         elif self.args.env_type == 'RouP':
             self.task_data = None
@@ -112,13 +96,14 @@ class RDAGEnv(gym.Env):
             raise NotImplementedError
         else:
             raise EnvironmentError('not implemented')
+        self.sum_dur = np.sum(self.task_data.x.numpy()) / self.args.processor_nodes
         self.time = 0
         self.num_steps = 0
         self.running = -1 * np.ones(self.args.processor_nodes).astype(int)
         self.running_task2proc = {}
         self.ready_proc = np.zeros(self.args.processor_nodes)
         self.task_comun = {}
-        self.processor_perf = np.clip(np.random.random(self.args.processor_nodes), a_min=0.1, a_max=1) # Start node performance as random between [0,1]
+        self.processor_perf = np.clip(np.ones(self.args.processor_nodes), a_min=0.1, a_max=1) # Start node performance as random between [0,1]
         self.last_perf_update_time = 0
         self.ready_tasks = []
         self.current_proc = 0
@@ -128,6 +113,7 @@ class RDAGEnv(gym.Env):
         self.comm_factors = []
         self.utilization = np.zeros(self.args.processor_nodes)
         self.wait_free_utilization = np.zeros(self.args.processor_nodes)
+        self.selection_rate = np.zeros(self.args.processor_nodes)
         self.task_to_comm_time = {}
         # compute initial doable tasks
 
@@ -156,6 +142,8 @@ class RDAGEnv(gym.Env):
         self.heft_time = max([v[-1].end.item() for v in orders.values() if len(v) > 0])
         '''
         return self._compute_state()
+    def get_stats(self):
+        return self.time, self.comp_sum, self.comm_sum, self.utilization, self.wait_free_utilization, np.mean(self.comm_factors), self.selection_rate
 
     def step(self, action, render_before=False, render_after=False, speed=False):
         """
@@ -163,8 +151,40 @@ class RDAGEnv(gym.Env):
         :param action: -1: does nothing. t: schedules t on the current available processor
         :return: next_state, reward, done, info
         """
+        if (self.heft):
+            # compute heft
+            string_cluster = string.printable[:self.args.processor_nodes]
+            dic_heft = {}
+            for edge in np.array(self.task_data.edge_index.t()):
+                dic_heft[edge[0]] = dic_heft.get(edge[0], ()) + (edge[1],)
 
+            def compcost(job, agent):
+                idx = string_cluster.find(agent)
+                duration = self.task_data.x[idx] * self.processor_perf[idx]
+                return duration
+
+            def commcost(ni, nj, A, B):
+                edge = np.logical_and(self.task_data.edge_index[0] == ni, self.task_data.edge_index[1] == nj)
+                if (np.any(np.where(edge > 0, True, False))):
+                    return self.cluster.communication_cost[int(A)][int(B)] * self.task_data.edge_attr[np.argmax(edge).item()].item()
+                else:
+                    return float("inf")
+            orders, jobson = heft.schedule(dic_heft, string_cluster, compcost, commcost)
+            potential_jobs = orders[str(self.current_proc)]
+            action = -1
+            for job_ind in range(len(potential_jobs)):
+                for action_ind in range(len(self.ready_tasks)):
+                    if potential_jobs[job_ind].job == self.ready_tasks[action_ind]:
+                        action = action_ind
+                        break
+            if (action == -1 and len(self.ready_tasks)):
+                action = 0
+            print(self.time)
+        # Random Baseline
+        #if (len(self.ready_tasks)):
+        #    action = random.randint(0, len(self.ready_tasks)-1)
         self.num_steps += 1
+
 
         if action != -1:
             self.compeur_task += 1
@@ -179,13 +199,7 @@ class RDAGEnv(gym.Env):
         if render_after and not speed:
             self.render()
 
-        reward = -self.time if done else -sched_reward
-        if (done):
-            print("TIME", self.time, "COMP", self.comp_sum, "COMM", self.comm_sum)
-            print("UTILS", self.utilization / self.time)
-            print("WF UTILS", self.wait_free_utilization / self.time)
-            print("COMM DISCOUNT", np.mean(self.comm_factors))
-
+        reward = -self.time / self.sum_dur if done else 0
 
         info = {'episode': {'r': reward, 'length': self.num_steps, 'time': self.time}, 'bad_transition': False}
 
@@ -214,7 +228,7 @@ class RDAGEnv(gym.Env):
         self.time = min_time
         while (self.time - self.last_perf_update_time > 1):
             self.last_perf_update_time += 1
-            self.processor_perf = np.clip(self.processor_perf + np.random.normal(0, 0.01, self.processor_perf.shape), a_min=0.1, a_max=1)
+            #self.processor_perf = np.clip(self.processor_perf + np.random.normal(0, 0.01, self.processor_perf.shape), a_min=0.1, a_max=1)
         self.ready_proc[self.ready_proc < self.time] = self.time
 
         tasks_finished = self.running[np.logical_and(self.ready_proc == self.time, self.running > -1)].copy()
@@ -278,6 +292,7 @@ class RDAGEnv(gym.Env):
                 self.comm_factors.append(1)
             else:
                 self.comm_factors.append(0)
+            self.selection_rate[processor] += 1
             self.task_to_comm_time[self.ready_tasks[action]] = comun_costs
             self.comm_sum += comun_costs
             self.comp_sum += self.task_data.x[self.ready_tasks[action]] / self.processor_perf[processor]
