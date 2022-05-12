@@ -143,7 +143,7 @@ class RDAGEnv(gym.Env):
         '''
         return self._compute_state()
     def get_stats(self):
-        return self.time, self.comp_sum, self.comm_sum, self.utilization, self.wait_free_utilization, np.mean(self.comm_factors), self.selection_rate
+        return self.time, self.comp_sum, self.comm_sum, self.utilization / self.time, self.wait_free_utilization / self.time, np.mean(self.comm_factors), self.selection_rate
 
     def step(self, action, render_before=False, render_after=False, speed=False):
         """

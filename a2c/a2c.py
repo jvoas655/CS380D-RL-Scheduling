@@ -80,6 +80,14 @@ class A2C:
             self.scheduler = LambdaLR(self.optimizer, lr_lambda=[lambda2])
         else:
             self.scheduler = None
+        self.time_log = []
+        self.comp_sum_log = []
+        self.comm_sum_log = []
+        self.utilization_log = []
+        self.wait_free_utilization_log = []
+        self.comm_factors_log = []
+        self.selection_rate_log = []
+        self.reward_log = []
 
     # Hint: use it during training_batch
     def _returns_advantages(self, rewards, dones, values, next_value):
@@ -174,6 +182,7 @@ class A2C:
                     observation['graph'] = observation['graph'].to(device)
                     reward_log.append(rewards[i])
                     time_log.append(info['episode']['time'])
+                    self.reward_log.append(rewards[i])
 
             # If our episode didn't end on the last step we need to compute the value for the last state
             if dones[i] and not info['bad_transition']:
@@ -185,13 +194,13 @@ class A2C:
 
             # Compute returns and advantages
             returns, advantages = self._returns_advantages(rewards, dones, values, next_value)
-
+            self.returns_log = returns
+            self.advantages_log = advantages
             # TO DO: use rewards for train rewards
 
             # Learning step !
             loss_value, loss_actor, loss_entropy = self.optimize_model(observations, actions, probs, probs_entropy, vals, returns, advantages, step=n_step)
             if self.writer is not None and log_ratio * self.config['log_interval'] < n_step:
-                print('saving model if better than the previous one')
                 log_ratio += 1
                 self.writer.add_scalar('reward', np.mean(reward_log), n_step)
                 self.writer.add_scalar('time', np.mean(time_log), n_step)
@@ -199,17 +208,42 @@ class A2C:
                 self.writer.add_scalar('actor_loss', loss_actor, n_step)
                 self.writer.add_scalar('entropy', loss_entropy, n_step)
 
-                if self.noise > 0:
-                    current_time = np.mean([self.evaluate(), self.evaluate(), self.evaluate()])
+                if self.noise != 0:
+                    time_rounds = []
+                    comp_sum_rounds = []
+                    comm_sum_rounds = []
+                    utilization_rounds = []
+                    wait_free_utilization_rounds = []
+                    comm_factors_rounds = []
+                    selection_rate_rounds = []
+                    for i in range(self.noise):
+                        ctime, comp_sum, comm_sum, utilization, wait_free_utilization, comm_factors, selection_rate = self.evaluate()
+                        time_rounds.append(ctime)
+                        comp_sum_rounds.append(comp_sum.item())
+                        comm_sum_rounds.append(comm_sum.item())
+                        utilization_rounds.append(utilization)
+                        wait_free_utilization_rounds.append(wait_free_utilization)
+                        comm_factors_rounds.append(comm_factors.item())
+                        selection_rate_rounds.append(selection_rate)
+                    self.time_log.append(np.mean(time_rounds))
+                    self.comp_sum_log.append(np.mean(comp_sum_rounds))
+                    self.comm_sum_log.append(np.mean(comm_sum_rounds))
+                    self.utilization_log.append(np.mean(utilization_rounds, axis=0))
+                    self.wait_free_utilization_log.append(np.mean(wait_free_utilization_rounds, axis=0))
+                    self.comm_factors_log.append(np.mean(comm_factors_rounds, axis=0))
+                    self.selection_rate_log.append(np.mean(selection_rate_rounds, axis=0))
                 else:
-                    current_time = self.evaluate()
-                self.writer.add_scalar('test time', current_time, n_step)
-                print("comparing current time: {} with previous best: {}".format(current_time, best_time))
-                if current_time < best_time:
-                    print("saving model")
-                    string_save = os.path.join(str(self.writer.get_logdir()), 'model{}.pth'.format(self.random_id))
-                    torch.save(self.network, string_save)
-                    best_time = current_time
+                    ctime, comp_sum, comm_sum, utilization, wait_free_utilization, comm_factors, selection_rate = self.evaluate()
+                    self.time_log.append(ctime)
+                    self.comp_sum_log.append(comp_sum.item())
+                    self.comm_sum_log.append(comm_sum.item())
+                    self.utilization_log.append(utilization)
+                    self.wait_free_utilization_log.append(wait_free_utilization)
+                    self.comm_factors_log.append(comm_factors.item())
+                    self.selection_rate_log.append(selection_rate)
+                self.writer.add_scalar('test time', self.time_log[-1], n_step)
+                string_save = os.path.join(str(self.writer.get_logdir()), 'model{}.pth'.format(self.random_id))
+                torch.save(self.network, string_save)
                     # current_tab = []
                     # for _ in range(10):
                     #     current_tab.append(self.evaluate())
@@ -226,11 +260,11 @@ class A2C:
 
         self.network = torch.load(string_save)
         results_last_model = []
-        if self.noise > 0:
-            for _ in range(5):
-                results_last_model.append(self.evaluate())
+        if self.noise != 0:
+            for i in range(self.noise):
+                results_last_model.append(self.evaluate()[0])
         else:
-            results_last_model.append(self.evaluate())
+            results_last_model.append(self.evaluate()[0])
         torch.save(self.network, os.path.join(str(self.writer.get_logdir()), 'model_{}.pth'.format(str(np.mean(results_last_model)))))
         os.remove(string_save)
         return best_time, np.mean(results_last_model)
@@ -311,4 +345,4 @@ class A2C:
                 observation, reward, done, info = env.step(action)
             except KeyError:
                 print("Error 2")
-        return env.time
+        return env.get_stats()

@@ -46,7 +46,6 @@ parser.add_argument('--env_type', type=str, default='RouE', help='')
 parser.add_argument('--seed_env', type=int, default=42, help='Random seed env ')
 parser.add_argument('--edges', type=float, default=0.07, help='Number of edges or percentage of maximal edges for RouE case')
 parser.add_argument('--as_density', default=True, action='store_true', help="Whether to treat edge count as a density metric or fixed num")
-parser.add_argument('--noise', type=float, default=0, help='noise')
 
 
 args = parser.parse_args()
